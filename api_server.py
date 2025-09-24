@@ -62,13 +62,10 @@ class EthicalAlignmentScorer:
     def __init__(self, model_type='bert_emotion'):
         """Initialize BERT scorer"""
         self.model_type = model_type
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cpu')
         
         try:
-            if model_type == 'bert_emotion':
-                model_name = 'j-hartmann/emotion-english-distilroberta-base'
-            else:
-                model_name = 'distilbert-base-uncased-finetuned-sst-2-english'
+            model_name = 'distilbert-base-uncased-finetuned-sst-2-english'
                 
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
@@ -99,7 +96,7 @@ class EthicalAlignmentScorer:
                     return_tensors="pt",
                     truncation=True,
                     padding=True,
-                    max_length=max_length,
+                    max_length=128,
                     return_attention_mask=True
                 )
                 
@@ -125,7 +122,7 @@ class EthicalAlignmentScorer:
                 result = 0.0
         
         # Cache result
-        if len(_ethical_alignment_cache) < 1000:
+        if len(_ethical_alignment_cache) < 100:
             _ethical_alignment_cache[text_hash] = result
         
         return round(result, 2)
