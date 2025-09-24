@@ -1,3 +1,7 @@
 Flask
 nltk
 gunicorn
+numpy
+scikit-learn
+transformers
+torch
