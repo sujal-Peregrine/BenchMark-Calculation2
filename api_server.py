@@ -137,9 +137,7 @@ class LightweightEthicalAlignmentScorer:
         
         return round(result, 2)
 
-def get_ethical_scorer():
-    """Get lightweight ethical scorer (no BERT loading)"""
-    return LightweightEthicalAlignmentScorer()
+# Removed get_ethical_scorer function - using direct instantiation
 
 # ------------------------------
 # Model Initialization (Lazy Loading) - UNCHANGED
@@ -291,7 +289,7 @@ def count_syllables(word):
 # ------------------------------
 def evaluate_ethical_alignment(generated_text):
     """Lightweight ethical alignment evaluation (NO BERT)"""
-    scorer = get_ethical_scorer()
+    scorer = LightweightEthicalAlignmentScorer()
     return scorer.ethical_alignment_score(generated_text)
 
 # ALL OTHER FUNCTIONS REMAIN EXACTLY THE SAME
