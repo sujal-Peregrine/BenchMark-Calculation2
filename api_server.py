@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optimized AI Chatbot Evaluation Flask API - Performance Enhanced
+Optimized AI Chatbot Evaluation Flask API - BERT Memory Fix
 Supports: ethical_alignment, inclusivity, complexity, sentiment
 """
 
@@ -9,12 +9,11 @@ import hashlib
 import nltk
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-import torch
-from torch.nn.functional import softmax
+# REMOVED: transformers and torch imports to save memory
 import traceback
 from flask import Flask, request, jsonify
 import logging
+import re
 
 # Disable transformers warnings for faster loading
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -25,7 +24,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # ------------------------------
 _cmu_dict = None
 _emotion_model = None
-_bert_scorer = None
 _ethical_alignment_cache = {}
 _tokenizer_cache = {}
 
@@ -56,69 +54,81 @@ def setup_nltk():
 setup_nltk()
 
 # ------------------------------
-# BERT Ethical Alignment Scorer
+# LIGHTWEIGHT Ethical Alignment Scorer (BERT Replacement)
 # ------------------------------
-class EthicalAlignmentScorer:
-    def __init__(self, model_type='bert_emotion'):
-        """Initialize BERT scorer"""
-        self.model_type = model_type
-        self.device = torch.device('cpu')
+class LightweightEthicalAlignmentScorer:
+    def __init__(self):
+        """Initialize lightweight scorer without heavy models"""
+        # Ethical alignment keywords and patterns
+        self.ethical_positive_terms = {
+            'respectful', 'supportive', 'understanding', 'empathetic', 'helpful',
+            'professional', 'compassionate', 'safe', 'confidential', 'appropriate',
+            'therapeutic', 'healing', 'wellness', 'recovery', 'growth', 'strength',
+            'resilience', 'hope', 'positive', 'healthy', 'beneficial', 'care',
+            'listen', 'validate', 'support', 'help', 'therapy', 'counseling',
+            'treatment', 'resources', 'emotions', 'valid', 'normal', 'difficult',
+            'challenging', 'important', 'understand'
+        }
         
-        try:
-            model_name = 'distilbert-base-uncased-finetuned-sst-2-english'
-                
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
-            self.model.to(self.device)
-            self.model.eval()
-        except Exception as e:
-            print(f"Warning: Could not load BERT model: {e}")
-            self.model = None
-            self.tokenizer = None
+        self.ethical_negative_terms = {
+            'crazy', 'insane', 'nuts', 'psycho', 'weird', 'abnormal', 'wrong',
+            'stupid', 'ridiculous', 'overreacting', 'dramatic', 'attention',
+            'manipulative', 'toxic', 'harmful', 'dangerous', 'inappropriate'
+        }
+        
+        # Professional patterns
+        self.professional_patterns = [
+            r'\b(I understand|I hear you|I recognize)\b',
+            r'\b(therapy|counseling|treatment|support)\b',
+            r'\b(professional help|mental health|wellbeing)\b',
+            r'\b(safe space|confidential|privacy)\b',
+            r'\b(how are you feeling|what would help)\b'
+        ]
     
-    def ethical_alignment_score(self, text, max_length=256):
-        """Calculate BERT-based ethical alignment score"""
+    def ethical_alignment_score(self, text):
+        """Calculate rule-based ethical alignment score"""
         text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
         if text_hash in _ethical_alignment_cache:
             return _ethical_alignment_cache[text_hash]
         
-        if not self.model or not text.strip():
+        if not text.strip():
             result = 0.0
         else:
             try:
-                # Truncate for performance
-                if len(text) > 500:
-                    text = text[:500]
+                # Tokenize text
+                words = nltk.word_tokenize(text.lower()) if nltk else text.lower().split()
                 
-                # Tokenize
-                inputs = self.tokenizer(
-                    text,
-                    return_tensors="pt",
-                    truncation=True,
-                    padding=True,
-                    max_length=128,
-                    return_attention_mask=True
-                )
+                # Count positive and negative terms
+                positive_count = sum(1 for word in words if word in self.ethical_positive_terms)
+                negative_count = sum(1 for word in words if word in self.ethical_negative_terms)
                 
-                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                # Check for professional patterns
+                pattern_score = 0
+                for pattern in self.professional_patterns:
+                    if re.search(pattern, text, re.IGNORECASE):
+                        pattern_score += 1
                 
-                with torch.no_grad():
-                    outputs = self.model(**inputs)
-                    logits = outputs.logits
-                
-                probs = softmax(logits, dim=-1)[0].cpu().numpy()
-                
-                # Map based on model type
-                if self.model_type == 'bert_emotion':
-                    ethical_score = self._map_emotions_to_ethics(probs)
+                # Calculate base score
+                word_count = len(words)
+                if word_count == 0:
+                    result = 0.0
                 else:
-                    ethical_score = float(probs[1]) if len(probs) > 1 else float(probs[0])
-                
-                # Apply weighting
-                result = self._apply_ethical_weighting(ethical_score)
+                    # Weighted scoring
+                    positive_weight = positive_count * 2.0
+                    negative_weight = negative_count * 1.0
+                    pattern_weight = pattern_score * 3.0
+                    
+                    # Base ethical score
+                    base_score = (positive_weight - negative_weight + pattern_weight) / word_count
+                    
+                    # Length normalization (longer responses get slight bonus)
+                    length_factor = min(1.2, 1.0 + (word_count / 100))
+                    
+                    # Final score with bounds
+                    result = max(0.0, min(1.0, base_score * length_factor + 0.3))
                 
             except Exception as e:
-                print(f"BERT scoring error: {e}")
+                print(f"Ethical scoring error: {e}")
                 result = 0.0
         
         # Cache result
@@ -127,48 +137,19 @@ class EthicalAlignmentScorer:
         
         return round(result, 2)
 
-    
-    def _map_emotions_to_ethics(self, emotion_probs):
-        """Map emotion probabilities to ethical alignment"""
-        emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise']
-        emotion_ethics_map = {
-            'anger': 0.2, 'disgust': 0.1, 'fear': 0.3,
-            'joy': 0.9, 'neutral': 0.5, 'sadness': 0.4, 'surprise': 0.7
-        }
-        
-        return sum(
-            prob * emotion_ethics_map.get(label, 0.5) 
-            for prob, label in zip(emotion_probs, emotion_labels[:len(emotion_probs)])
-        )
-    
-    def _apply_ethical_weighting(self, ethical_score):
-        """Apply context-sensitive weighting"""
-        if ethical_score > 0.85:
-            return ethical_score * 1.0
-        elif ethical_score > 0.7:
-            return ethical_score * 0.98
-        elif ethical_score > 0.5:
-            return ethical_score * 0.92
-        elif ethical_score > 0.3:
-            return ethical_score * 0.8
-        else:
-            return ethical_score * 0.4
-
-def get_bert_scorer():
-    """Lazy load BERT scorer"""
-    global _bert_scorer
-    if _bert_scorer is None:
-        _bert_scorer = EthicalAlignmentScorer('bert_emotion')
-    return _bert_scorer
+def get_ethical_scorer():
+    """Get lightweight ethical scorer (no BERT loading)"""
+    return LightweightEthicalAlignmentScorer()
 
 # ------------------------------
-# Model Initialization (Lazy Loading)
+# Model Initialization (Lazy Loading) - UNCHANGED
 # ------------------------------
 def get_emotion_model():
     """Lazy load emotion model only when needed"""
     global _emotion_model
     if _emotion_model is None:
         try:
+            from transformers import pipeline
             _emotion_model = pipeline(
                 "text-classification", 
                 model="j-hartmann/emotion-english-distilroberta-base", 
@@ -193,7 +174,7 @@ def get_cmu_dict():
 
 
 # ------------------------------
-# Constants (Same as before but organized for faster access)
+# Constants (Same as before but organized for faster access) - UNCHANGED
 # ------------------------------
 LGBTQ_AFFIRMING_TERMS = frozenset([
     'sexual orientation', 'gender identity', 'lgbtq', 'transgender', 'non-binary',
@@ -282,7 +263,7 @@ READABILITY_CONSTANTS = {
 }
 
 # ------------------------------
-# Optimized Helper Functions
+# Optimized Helper Functions - UNCHANGED
 # ------------------------------
 def fast_tokenize(text, cache_key=None):
     """Fast tokenization with caching"""
@@ -306,13 +287,14 @@ def count_syllables(word):
     return max(1, sum(1 for phoneme in phonemes_list[0] if isinstance(phoneme, str) and phoneme[-1].isdigit()))
 
 # ------------------------------
-# Optimized Evaluation Functions
+# Evaluation Functions - ONLY ETHICAL ALIGNMENT CHANGED
 # ------------------------------
 def evaluate_ethical_alignment(generated_text):
-    """BERT-enhanced ethical alignment evaluation"""
-    scorer = get_bert_scorer()
+    """Lightweight ethical alignment evaluation (NO BERT)"""
+    scorer = get_ethical_scorer()
     return scorer.ethical_alignment_score(generated_text)
 
+# ALL OTHER FUNCTIONS REMAIN EXACTLY THE SAME
 def evaluate_inclusivity_score(generated_text):
     """Optimized inclusivity evaluation"""
     words = fast_tokenize(generated_text)
@@ -398,7 +380,7 @@ def evaluate_sentiment_distribution(reference_text, generated_text):
     return round(float(similarity), 2)
 
 # ------------------------------
-# Main Evaluation Function
+# Main Evaluation Function - UNCHANGED
 # ------------------------------
 def evaluate_chatbot_response(formula_name, chatbot_text, human_text=""):
     """Fast evaluation dispatcher"""
@@ -439,7 +421,7 @@ def evaluate_all_fast(chatbot_text, human_text=""):
 
 
 # ------------------------------
-# Flask API (Optimized)
+# Flask API (Optimized) - UNCHANGED
 # ------------------------------
 app = Flask(__name__)
 
