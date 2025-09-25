@@ -36,8 +36,8 @@ def setup_nltk():
     os.makedirs(nltk_data_path, exist_ok=True)
     nltk.data.path.append(nltk_data_path)
 
-    # Only download what we absolutely need
-    required = ['punkt', 'cmudict']
+    # Download required resources
+    required = ['punkt', 'cmudict', 'punkt_tab']  # add 'punkt_tab' here
     for resource in required:
         try:
             if resource == 'cmudict':
@@ -45,10 +45,8 @@ def setup_nltk():
             else:
                 nltk.data.find(f'tokenizers/{resource}')
         except LookupError:
-            try:
-                nltk.download(resource, download_dir=nltk_data_path, quiet=True)
-            except:
-                pass
+            nltk.download(resource, download_dir=nltk_data_path, quiet=True)
+
 
 # Initialize NLTK once at startup
 setup_nltk()
