@@ -332,7 +332,7 @@ def evaluate_complexity_score(text):
     avg_sentence_length = total_words / total_sentences
     avg_syllables_per_word = syllables / total_words
     fk_score = 206.835 - 1.015*avg_sentence_length - 84.6*avg_syllables_per_word
-    return float(round(fk_score, 2))
+    return float(round(max(0, min(100, fk_score)), 2))
 
 def evaluate_sentiment_distribution(reference_text, generated_text):
     """Optimized sentiment evaluation"""
